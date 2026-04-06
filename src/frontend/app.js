@@ -8,6 +8,9 @@ let currentTab = "trending";
 let videoData = null;
 let sponsorSegments = [];
 let overlayTimeout = null;
+let currentVideoId = null;
+let currentQuality = "1080";
+const QUALITIES = ["1080", "720", "360"];
 let focusMap = {};
 let searchHistory = JSON.parse(localStorage.getItem("searchHistory") || "[]");
 
@@ -280,12 +283,14 @@ function renderHistory(history) {
 
 // ── PLAYER ───────────────────────────────────────────────
 async function playVideo(id, title) {
+  currentVideoId = id;
   showScreen("player");
   document.getElementById("player-title").textContent = title || "…";
   document.getElementById("player-overlay").classList.remove("hidden");
+  updateQualityButton();
 
   const [videoInfo, segments] = await Promise.all([
-    fetch(`${API}/video/${id}`).then(r => r.json()),
+    fetch(`${API}/video/${id}?quality=${currentQuality}`).then(r => r.json()),
     fetch(`${API}/sponsorblock/${id}`).then(r => r.json()).catch(() => [])
   ]);
 
@@ -300,6 +305,27 @@ async function playVideo(id, title) {
   resetOverlayTimer();
 
   await fetch(`${API}/profiles/${currentProfile.id}/history/${id}`, { method: "POST" });
+}
+
+async function changeQuality() {
+  const idx = QUALITIES.indexOf(currentQuality);
+  currentQuality = QUALITIES[(idx + 1) % QUALITIES.length];
+  updateQualityButton();
+
+  if (!currentVideoId) return;
+  const video = document.getElementById("player-video");
+  const currentTime = video.currentTime;
+
+  const videoInfo = await fetch(`${API}/video/${currentVideoId}?quality=${currentQuality}`).then(r => r.json());
+  video.src = videoInfo.stream_url;
+  video.currentTime = currentTime;
+  video.play();
+  resetOverlayTimer();
+}
+
+function updateQualityButton() {
+  const btn = document.getElementById("btn-quality");
+  if (btn) btn.textContent = `⚙ ${currentQuality}p`;
 }
 
 function onTimeUpdate() {
@@ -346,7 +372,7 @@ document.addEventListener("keydown", (e) => {
   const KEYS = {
     UP: 38, DOWN: 40, LEFT: 37, RIGHT: 39,
     ENTER: 13, BACK: 10009, PLAY_PAUSE: 10252,
-    RED: 403
+    RED: 403, GREEN: 404
   };
 
   if (currentScreen === "profiles") {
@@ -382,6 +408,9 @@ document.addEventListener("keydown", (e) => {
     if (key === KEYS.RED) {
       const seg = sponsorSegments.find(s => video.currentTime >= s.segment[0]);
       if (seg) video.currentTime = seg.segment[1];
+    }
+    if (key === KEYS.GREEN) {
+      changeQuality();
     }
   }
 });
@@ -419,4 +448,5 @@ function formatDuration(secs) {
 }
 
 // ── INIT ─────────────────────────────────────────────────
+document.getElementById("btn-quality").addEventListener("click", changeQuality);
 loadProfiles();
