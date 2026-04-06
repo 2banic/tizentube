@@ -407,6 +407,26 @@ function onTimeUpdate() {
   }
 }
 
+function togglePlayPause() {
+  const video = document.getElementById("player-video");
+  if (video.paused) {
+    video.play().catch(() => {});
+  } else {
+    video.pause();
+  }
+  document.getElementById("btn-playpause").textContent = video.paused ? "▶ Play" : "⏸ Pause";
+  resetOverlayTimer();
+}
+
+function exitPlayer() {
+  const video = document.getElementById("player-video");
+  cleanupPlayer();
+  video.pause();
+  video.src = "";
+  currentVideoId = null;
+  showScreen("home");
+}
+
 function resetOverlayTimer() {
   clearTimeout(overlayTimeout);
   document.getElementById("player-overlay").classList.remove("hidden");
@@ -460,23 +480,16 @@ document.addEventListener("keydown", (e) => {
     }
   } else if (currentScreen === "player") {
     const video = document.getElementById("player-video");
-    if (key === KEYS.ENTER || key === KEYS.PLAY_PAUSE) {
-      if (video.paused) {
-        video.play().catch(() => {});
-      } else {
-        video.pause();
-      }
-      document.getElementById("btn-playpause").textContent = video.paused ? "▶ Play" : "⏸ Pause";
-      resetOverlayTimer();
+    // Space (32) = Pause/Play auf Desktop, Enter + Tizen PLAY_PAUSE
+    if (key === KEYS.ENTER || key === KEYS.PLAY_PAUSE || key === 32) {
+      e.preventDefault();
+      togglePlayPause();
     }
     if (key === KEYS.LEFT) { video.currentTime -= 10; resetOverlayTimer(); }
     if (key === KEYS.RIGHT) { video.currentTime += 10; resetOverlayTimer(); }
-    if (key === KEYS.BACK) {
-      cleanupPlayer();
-      video.pause();
-      video.src = "";
-      currentVideoId = null;
-      showScreen("home");
+    // Escape (27) + Tizen BACK
+    if (key === KEYS.BACK || key === 27) {
+      exitPlayer();
     }
     if (key === KEYS.RED) {
       const seg = sponsorSegments.find(s => video.currentTime >= s.segment[0]);
@@ -526,5 +539,34 @@ function formatDuration(secs) {
 }
 
 // ── INIT ─────────────────────────────────────────────────
+
+// Player Buttons: Click-Handler für Desktop
+document.getElementById("btn-playpause").addEventListener("click", togglePlayPause);
+document.getElementById("btn-back").addEventListener("click", exitPlayer);
 document.getElementById("btn-quality").addEventListener("click", changeQuality);
+
+// Suchfeld: Click/Focus aktiviert searchActive (Desktop-Support)
+const searchInput = document.getElementById("search-input");
+searchInput.addEventListener("focus", () => {
+  if (!searchActive) activateSearch();
+});
+searchInput.addEventListener("keydown", (e) => {
+  if (e.keyCode === 13) {
+    e.preventDefault();
+    const query = searchInput.value;
+    if (query.trim()) {
+      closeSearchHistory();
+      performSearch(query);
+    }
+  }
+});
+
+// Player: Mausbewegung zeigt Overlay (Desktop-Support)
+document.getElementById("screen-player").addEventListener("mousemove", () => {
+  if (currentScreen === "player") resetOverlayTimer();
+});
+
+// Player: Klick auf Video = Play/Pause (Desktop-Support)
+document.getElementById("player-video").addEventListener("click", togglePlayPause);
+
 loadProfiles();
