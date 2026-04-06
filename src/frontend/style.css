@@ -243,6 +243,23 @@ body {
   display: block;
 }
 
+.video-thumb-wrapper {
+  position: relative;
+}
+
+.video-duration-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.85);
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
 .video-info {
   padding: 16px;
 }

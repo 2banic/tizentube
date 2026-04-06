@@ -17,6 +17,8 @@ let currentTab = "trending";
 let sponsorSegments = [];
 let overlayTimeout = null;
 let currentVideoId = null;
+let currentVideoChannel = null;
+let currentVideoChannelId = null;
 let currentQuality = "1080";
 const QUALITIES = ["1080", "720", "360"];
 let focusMap = {};
@@ -218,11 +220,17 @@ async function loadTab(tab) {
       const videos = await res.json();
       renderVideoGrid(videos, "Trending in Deutschland");
     } else if (tab === "subscriptions") {
-      const res = await fetch(`${API}/profiles/${currentProfile.id}/subscriptions`);
+      const res = await fetch(`${API}/profiles/${currentProfile.id}/feed`);
       if (gen !== tabGeneration) return;
-      if (!res.ok) throw new Error("Abos nicht verfügbar");
-      const subs = await res.json();
-      renderSubscriptions(subs);
+      if (!res.ok) throw new Error("Abo-Feed nicht verfügbar");
+      const videos = await res.json();
+      if (videos.length === 0) {
+        area.innerHTML = `
+          <div class="section-title">Deine Abos</div>
+          <div class="loading" style="color:#666">Noch keine Abos. Abonniere Kanäle über den ★-Button im Player!</div>`;
+      } else {
+        renderVideoGrid(videos, "Neueste Videos deiner Abos");
+      }
     } else if (tab === "history") {
       const res = await fetch(`${API}/profiles/${currentProfile.id}/history`);
       if (gen !== tabGeneration) return;
@@ -247,15 +255,18 @@ function renderVideoGrid(videos, title) {
     const card = document.createElement("div");
     card.className = "video-card" + (i === 0 ? " focused" : "");
     card.dataset.id = v.id;
+    const dur = formatDuration(v.duration);
     card.innerHTML = `
-      <img class="video-thumb" src="${escapeHtml(v.thumbnail)}" onerror="this.style.display='none'">
+      <div class="video-thumb-wrapper">
+        <img class="video-thumb" src="${escapeHtml(v.thumbnail)}" onerror="this.style.display='none'">
+        ${dur ? `<span class="video-duration-badge">${dur}</span>` : ""}
+      </div>
       <div class="video-info">
         <div class="video-title">${escapeHtml(v.title) || "–"}</div>
         <div class="video-channel">${escapeHtml(v.channel)}</div>
-        <div class="video-duration">${formatDuration(v.duration)}</div>
       </div>
     `;
-    card.addEventListener("click", () => playVideo(v.id, v.title));
+    card.addEventListener("click", () => playVideo(v.id, v.title, v.channel, v.channel_id));
     grid.appendChild(card);
   });
   focusMap["home"] = { items: grid.querySelectorAll(".video-card"), index: 0 };
@@ -329,9 +340,11 @@ function cleanupPlayer() {
   sponsorSkipping = false;
 }
 
-async function playVideo(id, title) {
+async function playVideo(id, title, channel, channelId) {
   const playId = id;
   currentVideoId = id;
+  currentVideoChannel = channel || null;
+  currentVideoChannelId = channelId || null;
   cleanupPlayer();
   showScreen("player");
   document.getElementById("player-title").textContent = title || "…";
@@ -349,6 +362,9 @@ async function playVideo(id, title) {
   const video = document.getElementById("player-video");
   video.src = videoInfo.stream_url;
   document.getElementById("player-title").textContent = videoInfo.title;
+  currentVideoChannel = videoInfo.channel || channel;
+  currentVideoChannelId = videoInfo.channel_id || channelId;
+  updateSubscribeButton();
   sponsorSegments = segments;
 
   video.play().catch(() => {
@@ -442,6 +458,40 @@ function resetOverlayTimer() {
   overlayTimeout = setTimeout(() => {
     document.getElementById("player-overlay").classList.add("hidden");
   }, 4000);
+}
+
+// ── SUBSCRIPTIONS ────────────────────────────────────────
+async function toggleSubscription() {
+  if (!currentProfile || !currentVideoChannelId || !currentVideoChannel) return;
+  const subs = await fetch(`${API}/profiles/${currentProfile.id}/subscriptions`).then(r => r.json());
+  const isSubbed = subs.some(s => s.channel_id === currentVideoChannelId);
+
+  if (isSubbed) {
+    await fetch(`${API}/profiles/${currentProfile.id}/subscriptions/${currentVideoChannelId}`, { method: "DELETE" });
+  } else {
+    await fetch(`${API}/profiles/${currentProfile.id}/subscriptions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        channel_id: currentVideoChannelId,
+        channel_name: currentVideoChannel,
+        thumbnail: ""
+      })
+    });
+  }
+  updateSubscribeButton();
+}
+
+async function updateSubscribeButton() {
+  const btn = document.getElementById("btn-subscribe");
+  if (!btn || !currentProfile || !currentVideoChannelId) {
+    if (btn) btn.textContent = "★ Abonnieren";
+    return;
+  }
+  const subs = await fetch(`${API}/profiles/${currentProfile.id}/subscriptions`).then(r => r.json()).catch(() => []);
+  const isSubbed = subs.some(s => s.channel_id === currentVideoChannelId);
+  btn.textContent = isSubbed ? "✓ Abonniert" : "★ Abonnieren";
+  btn.style.background = isSubbed ? "rgba(255,255,255,0.3)" : "rgba(255,0,0,0.6)";
 }
 
 // ── SEARCH ───────────────────────────────────────────────
@@ -558,6 +608,7 @@ function formatDuration(secs) {
 // Player Buttons
 document.getElementById("btn-playpause").addEventListener("click", togglePlayPause);
 document.getElementById("btn-back").addEventListener("click", exitPlayer);
+document.getElementById("btn-subscribe").addEventListener("click", toggleSubscription);
 document.getElementById("btn-quality").addEventListener("click", changeQuality);
 document.getElementById("btn-rewind").addEventListener("click", () => {
   document.getElementById("player-video").currentTime -= 10;

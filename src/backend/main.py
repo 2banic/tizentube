@@ -159,6 +159,46 @@ async def sync_from_pipepipe(profile_id: str, file: UploadFile = File(...)):
     save_json(f"{profile_path(profile_id)}/subscriptions.json", subs)
     return {"imported": len(subs)}
 
+# ─── Abo-Feed ──────────────────────────────────────────────
+
+@app.get("/profiles/{profile_id}/feed")
+def get_feed(profile_id: str, limit: int = 20):
+    """Neueste Videos aller abonnierten Kanäle."""
+    subs = load_json(f"{profile_path(profile_id)}/subscriptions.json", [])
+    if not subs:
+        return []
+    limit = max(1, min(limit, 50))
+    videos_per_channel = max(3, limit // len(subs))
+    all_videos = []
+    ydl_opts = {
+        "quiet": True,
+        "extract_flat": True,
+        "skip_download": True,
+        "playlistend": videos_per_channel,
+    }
+    for sub in subs:
+        cid = sub.get("channel_id", "")
+        if not CHANNEL_ID_RE.match(cid):
+            continue
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                result = ydl.extract_info(
+                    f"https://www.youtube.com/channel/{cid}/videos", download=False
+                )
+                for e in (result.get("entries") or []):
+                    if e.get("id"):
+                        all_videos.append({
+                            "id": e.get("id"),
+                            "title": e.get("title"),
+                            "channel": sub.get("channel_name") or e.get("channel") or e.get("uploader"),
+                            "channel_id": cid,
+                            "duration": e.get("duration"),
+                            "thumbnail": f"https://i.ytimg.com/vi/{e['id']}/hqdefault.jpg",
+                        })
+        except yt_dlp.utils.DownloadError:
+            continue
+    return all_videos[:limit]
+
 # ─── Watch History ──────────────────────────────────────────
 
 @app.get("/profiles/{profile_id}/history")
@@ -197,6 +237,7 @@ def search(q: str, limit: int = 20):
                     "id": e.get("id"),
                     "title": e.get("title"),
                     "channel": e.get("channel") or e.get("uploader"),
+                    "channel_id": e.get("channel_id") or e.get("uploader_id") or "",
                     "duration": e.get("duration"),
                     "thumbnail": f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault.jpg",
                 }
@@ -224,6 +265,7 @@ def get_video(video_id: str, quality: str = "1080"):
                 "id": video_id,
                 "title": info.get("title"),
                 "channel": info.get("channel") or info.get("uploader"),
+                "channel_id": info.get("channel_id") or info.get("uploader_id") or "",
                 "description": info.get("description", "")[:500],
                 "duration": info.get("duration"),
                 "stream_url": stream_url,
