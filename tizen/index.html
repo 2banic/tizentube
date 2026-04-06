@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TizenTube</title>
+  <script>
+    // Tizen TV Keys registrieren
+    try {
+      tizen.tvinputdevice.registerKeyBatch([
+        "MediaPlayPause", "MediaPlay", "MediaPause", "MediaStop",
+        "ColorF0Red", "ColorF1Green", "ColorF2Yellow", "ColorF3Blue"
+      ]);
+    } catch(e) {}
+
+    // Zum Backend weiterleiten
+    window.location.replace("http://192.168.178.76:8080/app/");
+  </script>
+</head>
+<body style="background:#000;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+  <div>Lade TizenTube...</div>
+</body>
+</html>
