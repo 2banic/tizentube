@@ -1,6 +1,15 @@
 // ── CONFIG ───────────────────────────────────────────────
 const API = window.location.origin;
 
+// Tizen TV Remote-Tasten registrieren
+try {
+  tizen.tvinputdevice.registerKeyBatch([
+    "MediaPlayPause", "MediaPlay", "MediaPause", "MediaStop",
+    "MediaRewind", "MediaFastForward",
+    "ColorF0Red", "ColorF1Green", "ColorF2Yellow", "ColorF3Blue"
+  ]);
+} catch(e) { /* Nicht auf Tizen — ignorieren */ }
+
 // ── STATE ────────────────────────────────────────────────
 let currentProfile = null;
 let currentScreen = "profiles";
@@ -459,8 +468,10 @@ document.addEventListener("keydown", (e) => {
 
   const KEYS = {
     UP: 38, DOWN: 40, LEFT: 37, RIGHT: 39,
-    ENTER: 13, BACK: 10009, PLAY_PAUSE: 10252,
-    RED: 403, GREEN: 404
+    ENTER: 13, BACK: 10009,
+    PLAY_PAUSE: 10252, PLAY: 415, PAUSE: 19, STOP: 413,
+    REWIND: 412, FAST_FORWARD: 417,
+    RED: 403, GREEN: 404, YELLOW: 405, BLUE: 406
   };
 
   if (currentScreen === "profiles") {
@@ -480,24 +491,28 @@ document.addEventListener("keydown", (e) => {
     }
   } else if (currentScreen === "player") {
     const video = document.getElementById("player-video");
-    // Space (32) = Pause/Play auf Desktop, Enter + Tizen PLAY_PAUSE
-    if (key === KEYS.ENTER || key === KEYS.PLAY_PAUSE || key === 32) {
+    // Jede Taste im Player zeigt das Overlay
+    resetOverlayTimer();
+
+    // Play/Pause: Space, Enter, Tizen MediaPlayPause/Play/Pause
+    if (key === KEYS.ENTER || key === KEYS.PLAY_PAUSE || key === KEYS.PLAY || key === KEYS.PAUSE || key === 32) {
       e.preventDefault();
       togglePlayPause();
     }
-    if (key === KEYS.LEFT) { video.currentTime -= 10; resetOverlayTimer(); }
-    if (key === KEYS.RIGHT) { video.currentTime += 10; resetOverlayTimer(); }
-    // Escape (27) + Tizen BACK
-    if (key === KEYS.BACK || key === 27) {
-      exitPlayer();
-    }
+    // Stop: zurück zum Home
+    if (key === KEYS.STOP) { exitPlayer(); }
+    // Vor/Zurück: Pfeiltasten + Tizen Rewind/FastForward
+    if (key === KEYS.LEFT || key === KEYS.REWIND) { video.currentTime -= 10; }
+    if (key === KEYS.RIGHT || key === KEYS.FAST_FORWARD) { video.currentTime += 10; }
+    // Zurück: Escape + Tizen BACK
+    if (key === KEYS.BACK || key === 27) { exitPlayer(); }
+    // SponsorBlock Skip: Rote Taste
     if (key === KEYS.RED) {
       const seg = sponsorSegments.find(s => video.currentTime >= s.segment[0]);
       if (seg) video.currentTime = seg.segment[1];
     }
-    if (key === KEYS.GREEN) {
-      changeQuality();
-    }
+    // Qualitätswechsel: Grüne Taste
+    if (key === KEYS.GREEN) { changeQuality(); }
   }
 });
 
@@ -540,33 +555,58 @@ function formatDuration(secs) {
 
 // ── INIT ─────────────────────────────────────────────────
 
-// Player Buttons: Click-Handler für Desktop
+// Player Buttons
 document.getElementById("btn-playpause").addEventListener("click", togglePlayPause);
 document.getElementById("btn-back").addEventListener("click", exitPlayer);
 document.getElementById("btn-quality").addEventListener("click", changeQuality);
+document.getElementById("btn-rewind").addEventListener("click", () => {
+  document.getElementById("player-video").currentTime -= 10;
+  resetOverlayTimer();
+});
+document.getElementById("btn-forward").addEventListener("click", () => {
+  document.getElementById("player-video").currentTime += 10;
+  resetOverlayTimer();
+});
 
-// Suchfeld: Click/Focus aktiviert searchActive (Desktop-Support)
+// Suchfeld
 const searchInput = document.getElementById("search-input");
+
+function submitSearch() {
+  const query = searchInput.value;
+  if (query.trim()) {
+    closeSearchHistory();
+    performSearch(query);
+  }
+}
+
 searchInput.addEventListener("focus", () => {
   if (!searchActive) activateSearch();
 });
+
+// Enter-Taste im Suchfeld
 searchInput.addEventListener("keydown", (e) => {
-  if (e.keyCode === 13) {
-    e.preventDefault();
-    const query = searchInput.value;
-    if (query.trim()) {
-      closeSearchHistory();
-      performSearch(query);
-    }
-  }
+  if (e.keyCode === 13) { e.preventDefault(); submitSearch(); }
 });
 
-// Player: Mausbewegung zeigt Overlay (Desktop-Support)
+// Samsung TV On-Screen-Keyboard: "Done/Fertig" löst blur + change aus, kein Enter
+searchInput.addEventListener("blur", () => {
+  // Kurzer Delay damit closeSearchHistory nicht die Suche unterbricht
+  setTimeout(() => {
+    if (searchInput.value.trim() && !searchActive) {
+      submitSearch();
+    }
+  }, 300);
+});
+
+// Suchbutton (für TV-Fernbedienung Navigation)
+document.getElementById("search-btn").addEventListener("click", submitSearch);
+
+// Player: Mausbewegung zeigt Overlay
 document.getElementById("screen-player").addEventListener("mousemove", () => {
   if (currentScreen === "player") resetOverlayTimer();
 });
 
-// Player: Klick auf Video = Play/Pause (Desktop-Support)
+// Player: Klick auf Video = Play/Pause
 document.getElementById("player-video").addEventListener("click", togglePlayPause);
 
 loadProfiles();

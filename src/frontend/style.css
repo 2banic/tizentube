@@ -180,6 +180,25 @@ body {
   border-color: white;
 }
 
+.search-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--accent);
+  border: none;
+  color: white;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.search-btn.focused {
+  outline: 3px solid white;
+}
+
 .content-area {
   flex: 1;
   padding: 140px 60px 40px;

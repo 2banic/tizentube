@@ -211,17 +211,15 @@ def get_video(video_id: str, quality: str = "1080"):
     height = int(quality) if quality.isdigit() else 1080
     ydl_opts = {
         "quiet": True,
-        "format": f"bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        # Tizen TV kann keine separaten Video+Audio-Streams mergen.
+        # Deshalb nur Formate mit Audio+Video in einer Datei (no DASH).
+        "format": f"best[ext=mp4][height<={height}]/best[height<={height}]/best",
         "skip_download": True,
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
             stream_url = info.get("url")
-            if not stream_url:
-                formats = info.get("requested_formats", [])
-                if formats:
-                    stream_url = formats[0].get("url")
             return {
                 "id": video_id,
                 "title": info.get("title"),
