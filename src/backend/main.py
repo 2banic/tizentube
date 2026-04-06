@@ -1,7 +1,8 @@
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import yt_dlp
 import httpx
 import json
@@ -22,21 +23,25 @@ app.add_middleware(
 DATA_DIR = os.environ.get("TIZENTUBE_DATA_DIR", "./data/profiles")
 os.makedirs(DATA_DIR, exist_ok=True)
 
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
 # ─── Modelle ───────────────────────────────────────────────
 
 class Profile(BaseModel):
-    name: str
-    avatar_color: str = "#1565C0"
+    name: str = Field(max_length=100)
+    avatar_color: str = Field(default="#1565C0", pattern=r"^#[0-9A-Fa-f]{6}$")
 
 class Subscription(BaseModel):
-    channel_id: str
-    channel_name: str
+    channel_id: str = Field(pattern=r"^UC[A-Za-z0-9_-]{22}$")
+    channel_name: str = Field(max_length=200)
     thumbnail: str = ""
 
 # ─── Helper ────────────────────────────────────────────────
 
 PROFILE_ID_RE = re.compile(r"^[a-f0-9]{8}$")
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+PLAYLIST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,64}$")
+CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 
 def validate_profile_id(profile_id: str):
     if not PROFILE_ID_RE.match(profile_id):
@@ -45,6 +50,10 @@ def validate_profile_id(profile_id: str):
 def validate_video_id(video_id: str):
     if not VIDEO_ID_RE.match(video_id):
         raise HTTPException(400, "Ungültige Video-ID")
+
+def validate_playlist_id(playlist_id: str):
+    if not PLAYLIST_ID_RE.match(playlist_id):
+        raise HTTPException(400, "Ungültige Playlist-ID")
 
 def profile_path(profile_id: str):
     validate_profile_id(profile_id)
@@ -123,6 +132,8 @@ def add_subscription(profile_id: str, sub: Subscription):
 
 @app.delete("/profiles/{profile_id}/subscriptions/{channel_id}")
 def remove_subscription(profile_id: str, channel_id: str):
+    if not CHANNEL_ID_RE.match(channel_id):
+        raise HTTPException(400, "Ungültige Channel-ID")
     path = f"{profile_path(profile_id)}/subscriptions.json"
     subs = load_json(path, [])
     subs = [s for s in subs if s["channel_id"] != channel_id]
@@ -132,15 +143,17 @@ def remove_subscription(profile_id: str, channel_id: str):
 @app.post("/profiles/{profile_id}/sync")
 async def sync_from_pipepipe(profile_id: str, file: UploadFile = File(...)):
     content = await file.read()
+    if len(content) > 1_000_000:
+        raise HTTPException(413, "Datei zu groß (max 1 MB)")
     data = json.loads(content)
     subs = []
     for entry in data.get("subscriptions", []):
         url = entry.get("url", "")
         channel_id = url.split("/")[-1] if url else ""
-        if channel_id:
+        if channel_id and CHANNEL_ID_RE.match(channel_id):
             subs.append({
                 "channel_id": channel_id,
-                "channel_name": entry.get("name", ""),
+                "channel_name": entry.get("name", "")[:200],
                 "thumbnail": ""
             })
     save_json(f"{profile_path(profile_id)}/subscriptions.json", subs)
@@ -169,24 +182,28 @@ def add_to_history(profile_id: str, video_id: str, progress: float = 0):
 def search(q: str, limit: int = 20):
     if not q.strip():
         return []
+    limit = max(1, min(limit, 50))
     ydl_opts = {
         "quiet": True,
         "extract_flat": True,
         "skip_download": True,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        result = ydl.extract_info(f"ytsearch{limit}:{q}", download=False)
-        entries = result.get("entries", [])
-        return [
-            {
-                "id": e.get("id"),
-                "title": e.get("title"),
-                "channel": e.get("channel") or e.get("uploader"),
-                "duration": e.get("duration"),
-                "thumbnail": f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault.jpg",
-            }
-            for e in entries if e.get("id")
-        ]
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            result = ydl.extract_info(f"ytsearch{limit}:{q}", download=False)
+            entries = result.get("entries", [])
+            return [
+                {
+                    "id": e.get("id"),
+                    "title": e.get("title"),
+                    "channel": e.get("channel") or e.get("uploader"),
+                    "duration": e.get("duration"),
+                    "thumbnail": f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault.jpg",
+                }
+                for e in entries if e.get("id")
+            ]
+    except yt_dlp.utils.DownloadError:
+        raise HTTPException(502, "YouTube-Suche fehlgeschlagen") from None
 
 @app.get("/video/{video_id}")
 def get_video(video_id: str, quality: str = "1080"):
@@ -197,22 +214,25 @@ def get_video(video_id: str, quality: str = "1080"):
         "format": f"bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "skip_download": True,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-        stream_url = info.get("url")
-        if not stream_url:
-            formats = info.get("requested_formats", [])
-            if formats:
-                stream_url = formats[0].get("url")
-        return {
-            "id": video_id,
-            "title": info.get("title"),
-            "channel": info.get("channel") or info.get("uploader"),
-            "description": info.get("description", "")[:500],
-            "duration": info.get("duration"),
-            "stream_url": stream_url,
-            "thumbnail": info.get("thumbnail"),
-        }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            stream_url = info.get("url")
+            if not stream_url:
+                formats = info.get("requested_formats", [])
+                if formats:
+                    stream_url = formats[0].get("url")
+            return {
+                "id": video_id,
+                "title": info.get("title"),
+                "channel": info.get("channel") or info.get("uploader"),
+                "description": info.get("description", "")[:500],
+                "duration": info.get("duration"),
+                "stream_url": stream_url,
+                "thumbnail": info.get("thumbnail"),
+            }
+    except yt_dlp.utils.DownloadError:
+        raise HTTPException(502, "Video nicht verfügbar") from None
 
 @app.get("/trending")
 def trending():
@@ -222,41 +242,48 @@ def trending():
         "skip_download": True,
         "playlistend": 20,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        result = ydl.extract_info("https://www.youtube.com/feed/trending?gl=DE", download=False)
-        entries = result.get("entries", [])
-        return [
-            {
-                "id": e.get("id"),
-                "title": e.get("title"),
-                "channel": e.get("channel") or e.get("uploader"),
-                "thumbnail": f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault.jpg",
-            }
-            for e in entries if e.get("id")
-        ]
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            result = ydl.extract_info("https://www.youtube.com/feed/trending?gl=DE", download=False)
+            entries = result.get("entries", [])
+            return [
+                {
+                    "id": e.get("id"),
+                    "title": e.get("title"),
+                    "channel": e.get("channel") or e.get("uploader"),
+                    "thumbnail": f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault.jpg",
+                }
+                for e in entries if e.get("id")
+            ]
+    except yt_dlp.utils.DownloadError:
+        raise HTTPException(502, "Trending nicht verfügbar") from None
 
 @app.get("/playlist/{playlist_id}")
 def get_playlist(playlist_id: str):
+    validate_playlist_id(playlist_id)
     ydl_opts = {
         "quiet": True,
         "extract_flat": True,
         "skip_download": True,
         "playlistend": 50,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        result = ydl.extract_info(f"https://www.youtube.com/playlist?list={playlist_id}", download=False)
-        entries = result.get("entries", [])
-        return {
-            "title": result.get("title"),
-            "videos": [
-                {
-                    "id": e.get("id"),
-                    "title": e.get("title"),
-                    "thumbnail": f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault.jpg",
-                }
-                for e in entries if e.get("id")
-            ]
-        }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            result = ydl.extract_info(f"https://www.youtube.com/playlist?list={playlist_id}", download=False)
+            entries = result.get("entries", [])
+            return {
+                "title": result.get("title"),
+                "videos": [
+                    {
+                        "id": e.get("id"),
+                        "title": e.get("title"),
+                        "thumbnail": f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault.jpg",
+                    }
+                    for e in entries if e.get("id")
+                ]
+            }
+    except yt_dlp.utils.DownloadError:
+        raise HTTPException(502, "Playlist nicht verfügbar") from None
 
 # ─── SponsorBlock ───────────────────────────────────────────
 
@@ -281,4 +308,5 @@ def health():
 
 # ─── Static Files (Frontend) ───────────────────────────────
 
-app.mount("/", StaticFiles(directory="src/frontend", html=True), name="frontend")
+if FRONTEND_DIR.is_dir():
+    app.mount("/app", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

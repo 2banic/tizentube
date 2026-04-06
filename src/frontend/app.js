@@ -5,7 +5,6 @@ const API = window.location.origin;
 let currentProfile = null;
 let currentScreen = "profiles";
 let currentTab = "trending";
-let videoData = null;
 let sponsorSegments = [];
 let overlayTimeout = null;
 let currentVideoId = null;
@@ -13,6 +12,9 @@ let currentQuality = "1080";
 const QUALITIES = ["1080", "720", "360"];
 let focusMap = {};
 let searchHistory = JSON.parse(localStorage.getItem("searchHistory") || "[]");
+let tabGeneration = 0;
+let sponsorSkipping = false;
+let qualitySeekListener = null;
 
 // ── SCREEN MANAGEMENT ────────────────────────────────────
 function showScreen(id) {
@@ -22,32 +24,41 @@ function showScreen(id) {
 }
 
 // ── PROFILE SCREEN ───────────────────────────────────────
-async function loadProfiles() {
-  const res = await fetch(`${API}/profiles`);
-  const profiles = await res.json();
-  const grid = document.getElementById("profile-grid");
-  grid.innerHTML = "";
+async function loadProfiles(retried) {
+  try {
+    const res = await fetch(`${API}/profiles`);
+    const profiles = await res.json();
+    const grid = document.getElementById("profile-grid");
+    grid.innerHTML = "";
 
-  if (profiles.length === 0) {
-    await createDemoProfiles();
-    return loadProfiles();
+    if (profiles.length === 0) {
+      if (retried) {
+        grid.innerHTML = '<div class="loading" style="color:#666">Keine Profile vorhanden.</div>';
+        return;
+      }
+      await createDemoProfiles();
+      return loadProfiles(true);
+    }
+
+    profiles.forEach((p, i) => {
+      const card = document.createElement("div");
+      card.className = "profile-card" + (i === 0 ? " focused" : "");
+      card.dataset.id = p.id;
+      card.innerHTML = `
+        <div class="profile-avatar" style="background:${escapeHtml(p.avatar_color)}">
+          ${escapeHtml(p.name[0].toUpperCase())}
+        </div>
+        <div class="profile-name">${escapeHtml(p.name)}</div>
+      `;
+      card.addEventListener("click", () => selectProfile(p));
+      grid.appendChild(card);
+    });
+
+    focusMap["profiles"] = { items: grid.querySelectorAll(".profile-card"), index: 0 };
+  } catch (err) {
+    document.getElementById("profile-grid").innerHTML =
+      '<div class="loading" style="color:#666">Verbindung fehlgeschlagen.</div>';
   }
-
-  profiles.forEach((p, i) => {
-    const card = document.createElement("div");
-    card.className = "profile-card" + (i === 0 ? " focused" : "");
-    card.dataset.id = p.id;
-    card.innerHTML = `
-      <div class="profile-avatar" style="background:${p.avatar_color}">
-        ${escapeHtml(p.name[0].toUpperCase())}
-      </div>
-      <div class="profile-name">${escapeHtml(p.name)}</div>
-    `;
-    card.addEventListener("click", () => selectProfile(p));
-    grid.appendChild(card);
-  });
-
-  focusMap["profiles"] = { items: grid.querySelectorAll(".profile-card"), index: 0 };
 }
 
 async function createDemoProfiles() {
@@ -75,9 +86,9 @@ function selectProfile(profile) {
   loadTab("trending");
 }
 
-// ── SEARCH HISTORY ────────────────────────────────────���──
+// ── SEARCH HISTORY ───────────────────────────────────────
 let searchActive = false;
-let searchHistoryIndex = -1; // -1 = input focused, 0+ = history item
+let searchHistoryIndex = -1;
 
 function addToSearchHistory(query) {
   searchHistory = searchHistory.filter(q => q !== query);
@@ -180,23 +191,33 @@ function handleSearchKeydown(e) {
   }
 }
 
-// ── HOME / TABS ────────────���─────────────────────────────
+// ── HOME / TABS ──────────────────────────────────────────
 async function loadTab(tab) {
   currentTab = tab;
+  const gen = ++tabGeneration;
   document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
 
   const area = document.getElementById("content-area");
   area.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  focusMap["home"] = null;
 
-  if (tab === "trending") {
-    const videos = await fetch(`${API}/trending`).then(r => r.json());
-    renderVideoGrid(videos, "Trending in Deutschland");
-  } else if (tab === "subscriptions") {
-    const subs = await fetch(`${API}/profiles/${currentProfile.id}/subscriptions`).then(r => r.json());
-    renderSubscriptions(subs);
-  } else if (tab === "history") {
-    const history = await fetch(`${API}/profiles/${currentProfile.id}/history`).then(r => r.json());
-    renderHistory(history);
+  try {
+    if (tab === "trending") {
+      const videos = await fetch(`${API}/trending`).then(r => r.json());
+      if (gen !== tabGeneration) return;
+      renderVideoGrid(videos, "Trending in Deutschland");
+    } else if (tab === "subscriptions") {
+      const subs = await fetch(`${API}/profiles/${currentProfile.id}/subscriptions`).then(r => r.json());
+      if (gen !== tabGeneration) return;
+      renderSubscriptions(subs);
+    } else if (tab === "history") {
+      const history = await fetch(`${API}/profiles/${currentProfile.id}/history`).then(r => r.json());
+      if (gen !== tabGeneration) return;
+      renderHistory(history);
+    }
+  } catch (err) {
+    if (gen !== tabGeneration) return;
+    area.innerHTML = '<div class="loading" style="color:#666">Laden fehlgeschlagen.</div>';
   }
 }
 
@@ -270,9 +291,9 @@ function renderHistory(history) {
     card.className = "video-card" + (i === 0 ? " focused" : "");
     card.dataset.id = h.video_id;
     card.innerHTML = `
-      <img class="video-thumb" src="https://i.ytimg.com/vi/${h.video_id}/hqdefault.jpg" onerror="this.style.display='none'">
+      <img class="video-thumb" src="https://i.ytimg.com/vi/${escapeHtml(h.video_id)}/hqdefault.jpg" onerror="this.style.display='none'">
       <div class="video-info">
-        <div class="video-title">${h.video_id}</div>
+        <div class="video-title">${escapeHtml(h.video_id)}</div>
       </div>
     `;
     card.addEventListener("click", () => playVideo(h.video_id));
@@ -282,8 +303,21 @@ function renderHistory(history) {
 }
 
 // ── PLAYER ───────────────────────────────────────────────
+function cleanupPlayer() {
+  const video = document.getElementById("player-video");
+  video.removeEventListener("timeupdate", onTimeUpdate);
+  if (qualitySeekListener) {
+    video.removeEventListener("loadedmetadata", qualitySeekListener);
+    qualitySeekListener = null;
+  }
+  clearTimeout(overlayTimeout);
+  sponsorSkipping = false;
+}
+
 async function playVideo(id, title) {
+  const playId = id;
   currentVideoId = id;
+  cleanupPlayer();
   showScreen("player");
   document.getElementById("player-title").textContent = title || "…";
   document.getElementById("player-overlay").classList.remove("hidden");
@@ -294,18 +328,22 @@ async function playVideo(id, title) {
     fetch(`${API}/sponsorblock/${id}`).then(r => r.json()).catch(() => [])
   ]);
 
+  // Guard: user navigated away during fetch
+  if (currentVideoId !== playId || currentScreen !== "player") return;
+
   const video = document.getElementById("player-video");
-  video.removeEventListener("timeupdate", onTimeUpdate);
   video.src = videoInfo.stream_url;
   document.getElementById("player-title").textContent = videoInfo.title;
   sponsorSegments = segments;
 
-  video.play();
+  video.play().catch(() => {
+    document.getElementById("btn-playpause").textContent = "▶ Play";
+  });
   video.addEventListener("timeupdate", onTimeUpdate);
 
   resetOverlayTimer();
 
-  await fetch(`${API}/profiles/${currentProfile.id}/history/${id}`, { method: "POST" });
+  fetch(`${API}/profiles/${currentProfile.id}/history/${id}`, { method: "POST" }).catch(() => {});
 }
 
 async function changeQuality() {
@@ -315,15 +353,24 @@ async function changeQuality() {
 
   if (!currentVideoId) return;
   const video = document.getElementById("player-video");
-  const currentTime = video.currentTime;
+  const savedTime = video.currentTime;
+
+  // Remove previous seek listener if still pending
+  if (qualitySeekListener) {
+    video.removeEventListener("loadedmetadata", qualitySeekListener);
+  }
 
   const videoInfo = await fetch(`${API}/video/${currentVideoId}?quality=${currentQuality}`).then(r => r.json());
   video.src = videoInfo.stream_url;
-  video.addEventListener("loadedmetadata", function seekAfterLoad() {
-    video.currentTime = currentTime;
-    video.removeEventListener("loadedmetadata", seekAfterLoad);
-  });
-  video.play();
+
+  qualitySeekListener = function() {
+    video.currentTime = savedTime;
+    video.removeEventListener("loadedmetadata", qualitySeekListener);
+    qualitySeekListener = null;
+  };
+  video.addEventListener("loadedmetadata", qualitySeekListener);
+
+  video.play().catch(() => {});
   resetOverlayTimer();
 }
 
@@ -333,6 +380,7 @@ function updateQualityButton() {
 }
 
 function onTimeUpdate() {
+  if (sponsorSkipping) return;
   const video = document.getElementById("player-video");
   if (!video.duration) return;
 
@@ -344,8 +392,10 @@ function onTimeUpdate() {
     video.currentTime >= s.segment[0] && video.currentTime < s.segment[1]
   );
   if (seg) {
+    sponsorSkipping = true;
     banner.style.display = "block";
     video.currentTime = seg.segment[1];
+    setTimeout(() => { sponsorSkipping = false; }, 500);
   } else {
     banner.style.display = "none";
   }
@@ -363,10 +413,18 @@ function resetOverlayTimer() {
 async function performSearch(query) {
   if (!query.trim()) return;
   addToSearchHistory(query.trim());
+  const gen = ++tabGeneration;
   const area = document.getElementById("content-area");
   area.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
-  const videos = await fetch(`${API}/search?q=${encodeURIComponent(query)}`).then(r => r.json());
-  renderVideoGrid(videos, `Suche: "${query}"`);
+  focusMap["home"] = null;
+  try {
+    const videos = await fetch(`${API}/search?q=${encodeURIComponent(query)}`).then(r => r.json());
+    if (gen !== tabGeneration) return;
+    renderVideoGrid(videos, `Suche: "${query}"`);
+  } catch (err) {
+    if (gen !== tabGeneration) return;
+    area.innerHTML = '<div class="loading" style="color:#666">Suche fehlgeschlagen.</div>';
+  }
 }
 
 // ── D-PAD NAVIGATION ────────────────────────────────────
@@ -386,7 +444,6 @@ document.addEventListener("keydown", (e) => {
       handleSearchKeydown(e);
       return;
     }
-    // UP auf Video-Grid → Suchfeld aktivieren
     if (key === KEYS.UP) {
       activateSearch();
       return;
@@ -398,15 +455,21 @@ document.addEventListener("keydown", (e) => {
   } else if (currentScreen === "player") {
     const video = document.getElementById("player-video");
     if (key === KEYS.ENTER || key === KEYS.PLAY_PAUSE) {
-      video.paused ? video.play() : video.pause();
+      if (video.paused) {
+        video.play().catch(() => {});
+      } else {
+        video.pause();
+      }
       document.getElementById("btn-playpause").textContent = video.paused ? "▶ Play" : "⏸ Pause";
       resetOverlayTimer();
     }
     if (key === KEYS.LEFT) { video.currentTime -= 10; resetOverlayTimer(); }
     if (key === KEYS.RIGHT) { video.currentTime += 10; resetOverlayTimer(); }
     if (key === KEYS.BACK) {
+      cleanupPlayer();
       video.pause();
       video.src = "";
+      currentVideoId = null;
       showScreen("home");
     }
     if (key === KEYS.RED) {
@@ -421,7 +484,7 @@ document.addEventListener("keydown", (e) => {
 
 function handleNavigation(e, screen, direction) {
   const fm = focusMap[screen];
-  if (!fm || !fm.items.length) return;
+  if (!fm || !fm.items || !fm.items.length) return;
   const KEYS = { LEFT: 37, RIGHT: 39, UP: 38, DOWN: 40, ENTER: 13 };
 
   const prev = fm.index;

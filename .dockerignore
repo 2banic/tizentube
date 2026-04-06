@@ -1,0 +1,10 @@
+.git
+__pycache__
+**/__pycache__
+*.pyc
+data/
+.pytest_cache
+tests/
+*.egg-info
+.claude/
+.github/
