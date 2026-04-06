@@ -298,6 +298,7 @@ def trending():
                         "id": e.get("id"),
                         "title": e.get("title"),
                         "channel": e.get("channel") or e.get("uploader"),
+                        "duration": e.get("duration"),
                         "thumbnail": f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault.jpg",
                     }
                     for e in entries if e.get("id")
@@ -316,6 +317,7 @@ def trending():
                     "id": e.get("id"),
                     "title": e.get("title"),
                     "channel": e.get("channel") or e.get("uploader"),
+                    "duration": e.get("duration"),
                     "thumbnail": f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault.jpg",
                 }
                 for e in entries if e.get("id")
