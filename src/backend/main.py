@@ -64,11 +64,11 @@ def get_profiles():
 def create_profile(profile: Profile):
     pid = str(uuid.uuid4())[:8]
     os.makedirs(profile_path(pid), exist_ok=True)
-    save_json(f"{profile_path(pid)}/profile.json", profile.dict())
+    save_json(f"{profile_path(pid)}/profile.json", profile.model_dump())
     save_json(f"{profile_path(pid)}/subscriptions.json", [])
     save_json(f"{profile_path(pid)}/playlists.json", [])
     save_json(f"{profile_path(pid)}/history.json", [])
-    return {"id": pid, **profile.dict()}
+    return {"id": pid, **profile.model_dump()}
 
 @app.delete("/profiles/{profile_id}")
 def delete_profile(profile_id: str):
@@ -90,7 +90,7 @@ def add_subscription(profile_id: str, sub: Subscription):
     path = f"{profile_path(profile_id)}/subscriptions.json"
     subs = load_json(path, [])
     if not any(s["channel_id"] == sub.channel_id for s in subs):
-        subs.append(sub.dict())
+        subs.append(sub.model_dump())
         save_json(path, subs)
     return subs
 
