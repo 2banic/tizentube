@@ -1,0 +1,316 @@
+// ── CONFIG ───────────────────────────────────────────────
+const API = window.location.origin;
+
+// ── STATE ────────────────────────────────────────────────
+let currentProfile = null;
+let currentScreen = "profiles";
+let currentTab = "trending";
+let videoData = null;
+let sponsorSegments = [];
+let overlayTimeout = null;
+let focusMap = {};
+let searchHistory = JSON.parse(localStorage.getItem("searchHistory") || "[]");
+
+// ── SCREEN MANAGEMENT ────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById("screen-" + id).classList.add("active");
+  currentScreen = id;
+}
+
+// ── PROFILE SCREEN ───────────────────────────────────────
+async function loadProfiles() {
+  const res = await fetch(`${API}/profiles`);
+  const profiles = await res.json();
+  const grid = document.getElementById("profile-grid");
+  grid.innerHTML = "";
+
+  if (profiles.length === 0) {
+    await createDemoProfiles();
+    return loadProfiles();
+  }
+
+  profiles.forEach((p, i) => {
+    const card = document.createElement("div");
+    card.className = "profile-card" + (i === 0 ? " focused" : "");
+    card.dataset.id = p.id;
+    card.innerHTML = `
+      <div class="profile-avatar" style="background:${p.avatar_color}">
+        ${p.name[0].toUpperCase()}
+      </div>
+      <div class="profile-name">${p.name}</div>
+    `;
+    card.addEventListener("click", () => selectProfile(p));
+    grid.appendChild(card);
+  });
+
+  focusMap["profiles"] = { items: grid.querySelectorAll(".profile-card"), index: 0 };
+}
+
+async function createDemoProfiles() {
+  const demos = [
+    { name: "Person 1", avatar_color: "#1565C0" },
+    { name: "Person 2", avatar_color: "#B71C1C" },
+    { name: "Person 3", avatar_color: "#1B5E20" },
+  ];
+  for (const d of demos) {
+    await fetch(`${API}/profiles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(d)
+    });
+  }
+}
+
+function selectProfile(profile) {
+  currentProfile = profile;
+  const avatar = document.getElementById("topbar-avatar");
+  avatar.textContent = profile.name[0].toUpperCase();
+  avatar.style.background = profile.avatar_color;
+  document.getElementById("topbar-name").textContent = profile.name;
+  showScreen("home");
+  loadTab("trending");
+}
+
+// ── SEARCH HISTORY ───────────────────────────────────────
+function addToSearchHistory(query) {
+  searchHistory = searchHistory.filter(q => q !== query);
+  searchHistory.unshift(query);
+  searchHistory = searchHistory.slice(0, 20);
+  localStorage.setItem("searchHistory", JSON.stringify(searchHistory));
+}
+
+// ── HOME / TABS ──────────────────────────────────────────
+async function loadTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+
+  const area = document.getElementById("content-area");
+  area.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+
+  if (tab === "trending") {
+    const videos = await fetch(`${API}/trending`).then(r => r.json());
+    renderVideoGrid(videos, "Trending in Deutschland");
+  } else if (tab === "subscriptions") {
+    const subs = await fetch(`${API}/profiles/${currentProfile.id}/subscriptions`).then(r => r.json());
+    renderSubscriptions(subs);
+  } else if (tab === "history") {
+    const history = await fetch(`${API}/profiles/${currentProfile.id}/history`).then(r => r.json());
+    renderHistory(history);
+  }
+}
+
+function renderVideoGrid(videos, title) {
+  const area = document.getElementById("content-area");
+  area.innerHTML = `
+    <div class="section-title">${title}</div>
+    <div class="video-grid" id="video-grid"></div>
+  `;
+  const grid = document.getElementById("video-grid");
+  videos.forEach((v, i) => {
+    const card = document.createElement("div");
+    card.className = "video-card" + (i === 0 ? " focused" : "");
+    card.dataset.id = v.id;
+    card.innerHTML = `
+      <img class="video-thumb" src="${v.thumbnail}" onerror="this.style.display='none'">
+      <div class="video-info">
+        <div class="video-title">${v.title || "–"}</div>
+        <div class="video-channel">${v.channel || ""}</div>
+        <div class="video-duration">${formatDuration(v.duration)}</div>
+      </div>
+    `;
+    card.addEventListener("click", () => playVideo(v.id, v.title));
+    grid.appendChild(card);
+  });
+  focusMap["home"] = { items: grid.querySelectorAll(".video-card"), index: 0 };
+}
+
+function renderSubscriptions(subs) {
+  const area = document.getElementById("content-area");
+  if (subs.length === 0) {
+    area.innerHTML = `
+      <div class="section-title">Deine Abonnements</div>
+      <div class="loading" style="color:#666">
+        Noch keine Abos. PipePipe-Export importieren!
+      </div>`;
+    return;
+  }
+  area.innerHTML = `
+    <div class="section-title">Deine Abonnements</div>
+    <div class="channel-list" id="channel-list"></div>
+  `;
+  const list = document.getElementById("channel-list");
+  subs.forEach((s, i) => {
+    const card = document.createElement("div");
+    card.className = "channel-card" + (i === 0 ? " focused" : "");
+    card.innerHTML = `
+      <div class="channel-icon">${s.channel_name[0] || "?"}</div>
+      <div class="channel-name">${s.channel_name}</div>
+    `;
+    list.appendChild(card);
+  });
+  focusMap["home"] = { items: list.querySelectorAll(".channel-card"), index: 0 };
+}
+
+function renderHistory(history) {
+  const area = document.getElementById("content-area");
+  if (history.length === 0) {
+    area.innerHTML = `
+      <div class="section-title">Verlauf</div>
+      <div class="loading" style="color:#666">Noch keine Videos angesehen.</div>`;
+    return;
+  }
+  area.innerHTML = `
+    <div class="section-title">Verlauf</div>
+    <div class="video-grid" id="video-grid"></div>
+  `;
+  const grid = document.getElementById("video-grid");
+  history.forEach((h, i) => {
+    const card = document.createElement("div");
+    card.className = "video-card" + (i === 0 ? " focused" : "");
+    card.dataset.id = h.video_id;
+    card.innerHTML = `
+      <img class="video-thumb" src="https://i.ytimg.com/vi/${h.video_id}/hqdefault.jpg" onerror="this.style.display='none'">
+      <div class="video-info">
+        <div class="video-title">${h.video_id}</div>
+      </div>
+    `;
+    card.addEventListener("click", () => playVideo(h.video_id));
+    grid.appendChild(card);
+  });
+  focusMap["home"] = { items: grid.querySelectorAll(".video-card"), index: 0 };
+}
+
+// ── PLAYER ───────────────────────────────────────────────
+async function playVideo(id, title) {
+  showScreen("player");
+  document.getElementById("player-title").textContent = title || "…";
+  document.getElementById("player-overlay").classList.remove("hidden");
+
+  const [videoInfo, segments] = await Promise.all([
+    fetch(`${API}/video/${id}`).then(r => r.json()),
+    fetch(`${API}/sponsorblock/${id}`).then(r => r.json()).catch(() => [])
+  ]);
+
+  const video = document.getElementById("player-video");
+  video.src = videoInfo.stream_url;
+  document.getElementById("player-title").textContent = videoInfo.title;
+  sponsorSegments = segments;
+
+  video.play();
+  video.addEventListener("timeupdate", onTimeUpdate);
+
+  resetOverlayTimer();
+
+  await fetch(`${API}/profiles/${currentProfile.id}/history/${id}`, { method: "POST" });
+}
+
+function onTimeUpdate() {
+  const video = document.getElementById("player-video");
+  if (!video.duration) return;
+
+  const pct = (video.currentTime / video.duration) * 100;
+  document.getElementById("progress-fill").style.width = pct + "%";
+
+  const banner = document.getElementById("sponsor-banner");
+  const seg = sponsorSegments.find(s =>
+    video.currentTime >= s.segment[0] && video.currentTime < s.segment[1]
+  );
+  if (seg) {
+    banner.style.display = "block";
+    video.currentTime = seg.segment[1];
+  } else {
+    banner.style.display = "none";
+  }
+}
+
+function resetOverlayTimer() {
+  clearTimeout(overlayTimeout);
+  document.getElementById("player-overlay").classList.remove("hidden");
+  overlayTimeout = setTimeout(() => {
+    document.getElementById("player-overlay").classList.add("hidden");
+  }, 4000);
+}
+
+// ── SEARCH ───────────────────────────────────────────────
+async function performSearch(query) {
+  if (!query.trim()) return;
+  addToSearchHistory(query.trim());
+  const area = document.getElementById("content-area");
+  area.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  const videos = await fetch(`${API}/search?q=${encodeURIComponent(query)}`).then(r => r.json());
+  renderVideoGrid(videos, `Suche: "${query}"`);
+}
+
+// ── D-PAD NAVIGATION ────────────────────────────────────
+document.addEventListener("keydown", (e) => {
+  const key = e.keyCode;
+
+  const KEYS = {
+    UP: 38, DOWN: 40, LEFT: 37, RIGHT: 39,
+    ENTER: 13, BACK: 10009, PLAY_PAUSE: 10252,
+    RED: 403
+  };
+
+  if (currentScreen === "profiles") {
+    handleNavigation(e, "profiles", "horizontal");
+  } else if (currentScreen === "home") {
+    handleNavigation(e, "home", "horizontal");
+    if (key === KEYS.BACK) {
+      showScreen("profiles");
+    }
+  } else if (currentScreen === "player") {
+    const video = document.getElementById("player-video");
+    if (key === KEYS.ENTER || key === KEYS.PLAY_PAUSE) {
+      video.paused ? video.play() : video.pause();
+      document.getElementById("btn-playpause").textContent = video.paused ? "▶ Play" : "⏸ Pause";
+      resetOverlayTimer();
+    }
+    if (key === KEYS.LEFT) { video.currentTime -= 10; resetOverlayTimer(); }
+    if (key === KEYS.RIGHT) { video.currentTime += 10; resetOverlayTimer(); }
+    if (key === KEYS.BACK) {
+      video.pause();
+      video.src = "";
+      showScreen("home");
+    }
+    if (key === KEYS.RED) {
+      const seg = sponsorSegments.find(s => video.currentTime >= s.segment[0]);
+      if (seg) video.currentTime = seg.segment[1];
+    }
+  }
+});
+
+function handleNavigation(e, screen, direction) {
+  const fm = focusMap[screen];
+  if (!fm || !fm.items.length) return;
+  const KEYS = { LEFT: 37, RIGHT: 39, UP: 38, DOWN: 40, ENTER: 13 };
+
+  const prev = fm.index;
+  if ((direction === "horizontal" && e.keyCode === KEYS.RIGHT) ||
+      (direction === "vertical" && e.keyCode === KEYS.DOWN)) {
+    fm.index = Math.min(fm.index + 1, fm.items.length - 1);
+  } else if ((direction === "horizontal" && e.keyCode === KEYS.LEFT) ||
+             (direction === "vertical" && e.keyCode === KEYS.UP)) {
+    fm.index = Math.max(fm.index - 1, 0);
+  } else if (e.keyCode === KEYS.ENTER) {
+    fm.items[fm.index].click();
+    return;
+  }
+
+  if (fm.index !== prev) {
+    fm.items[prev].classList.remove("focused");
+    fm.items[fm.index].classList.add("focused");
+    fm.items[fm.index].scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  }
+}
+
+// ── HELPER ───────────────────────────────────────────────
+function formatDuration(secs) {
+  if (!secs) return "";
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+// ── INIT ─────────────────────────────────────────────────
+loadProfiles();

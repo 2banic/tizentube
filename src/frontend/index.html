@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TizenTube</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- SCREEN: PROFILAUSWAHL -->
+<div id="screen-profiles" class="screen active">
+  <h1>▶ TizenTube</h1>
+  <p class="subtitle">Wer schaut heute?</p>
+  <div class="profile-grid" id="profile-grid">
+    <div class="loading"><div class="spinner"></div><span>Profile laden…</span></div>
+  </div>
+</div>
+
+<!-- SCREEN: HOME -->
+<div id="screen-home" class="screen">
+  <div class="topbar">
+    <div class="topbar-logo">▶ TizenTube</div>
+    <div class="topbar-nav">
+      <button class="nav-btn active" data-tab="trending">Trends</button>
+      <button class="nav-btn" data-tab="subscriptions">Abos</button>
+      <button class="nav-btn" data-tab="history">Verlauf</button>
+    </div>
+    <div class="search-container">
+      <input class="search-input" id="search-input" placeholder="🔍  Suchen…" readonly>
+    </div>
+    <div class="topbar-profile" id="topbar-profile">
+      <div class="topbar-avatar-small" id="topbar-avatar"></div>
+      <span class="topbar-profile-name" id="topbar-name"></span>
+    </div>
+  </div>
+  <div class="content-area" id="content-area">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<!-- SCREEN: PLAYER -->
+<div id="screen-player" class="screen">
+  <video id="player-video" autoplay></video>
+  <div class="player-overlay" id="player-overlay">
+    <div class="player-title" id="player-title"></div>
+    <div class="player-controls">
+      <button class="player-btn" id="btn-playpause">⏸ Pause</button>
+      <button class="player-btn" id="btn-back">↩ Zurück</button>
+    </div>
+    <div class="progress-bar-container" id="progress-container">
+      <div class="progress-bar-fill" id="progress-fill"></div>
+    </div>
+  </div>
+  <div class="sponsor-banner" id="sponsor-banner">⏭ Sponsor überspringen (OK)</div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
