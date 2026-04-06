@@ -1,50 +1,41 @@
-# Handoff — 2026-04-06
+# Handoff — 2026-04-06 (Session 2)
 
 ## Ziel dieser Session
-TizenTube-Projekt bootstrappen: v2-Code als Basis, GitHub Repo, Docker Setup, MVP-Issues, dann Issues #1+#2 implementieren und intensives Bug-Review.
+Issues #1+#2 implementieren, Bug-Review (30 Bugs gefixt), Proxmox LXC Deployment, Tizen TV App auf Samsung Q80T installieren, Abo-System + Video-Dauer + Spracheingabe.
 
 ## Erledigt
-- [x] Projekt-Scaffold aus v2-Code (/tmp/yt-files/yt2/) in src/backend + src/frontend aufgeteilt
-- [x] Git init, GitHub Repo 2banic/tizentube angelegt mit Labels + Milestone v1.0 MVP
-- [x] CLAUDE.md, Dockerfile, docker-compose.yml, E2E-Tests
-- [x] Issue #1: Suchhistorie-Dropdown mit D-Pad Navigation (localStorage, max 20)
-- [x] Issue #2: Qualitätswahl im Player (1080/720/360p, GREEN-Taste, Position bleibt)
-- [x] 30 Bugs gefixt in 2 Review-Runden (3 parallele Review-Agenten)
-- [x] Vault: Projektnotiz + Projektübersicht aktualisiert
+- [x] Issue #1: Suchhistorie-Dropdown
+- [x] Issue #2: Qualitätswahl im Player
+- [x] 30 Bugs gefixt (2 Review-Runden mit 3 parallelen Agenten)
+- [x] Issue #3: LXC Container 103 auf Proxmox (192.168.178.76:8080)
+- [x] Issue #4: Tizen .wgt App auf Samsung GQ65Q80T installiert (Package: YnOBqFPHf4)
+- [x] Sound-Fix: Combined video+audio Format statt separate Streams
+- [x] Desktop-Browser-Support (Space, Escape, Maus, Click-Handler)
+- [x] Trending-Fallback (Playlist + Suche wenn Feed kaputt)
+- [x] Abo-System: Subscribe-Button im Player + Abo-Feed Tab
+- [x] Video-Dauer-Badge auf Thumbnails
+- [x] Spracheingabe-Attribute am Suchfeld
 
-## Naechste Schritte
-1. Issue #3: Docker auf Proxmox LXC (192.168.178.51) deployen und von Tizen TV testen
-2. Issue #4: Tizen .wgt Paketierung (config.xml, Signierung)
-3. Frontend: API-URL muss auf `/app` Prefix umgestellt werden (StaticFiles jetzt unter /app)
-4. Frontend zeigt bei History nur video_id statt Titel — Video-Metadaten im History-Eintrag mitspeichern
+## Bekannte Bugs (nächste Session)
+- [ ] #7: Abos/Verlauf-Tab-Buttons nicht per D-Pad fokussierbar
+- [ ] #8: Profil-Wechsel-Button (Topbar rechts) reagiert nicht
+- [ ] #5: Frontend /app Pfad-Cleanup
+- [ ] #6: History zeigt nur video_id statt Titel
 
-## Entscheidungen (mit Begruendung)
-- **StaticFiles auf /app statt /**: Mount auf "/" shadowed alle API-Routen. /app ist sicher, Frontend muss angepasst werden.
-- **JSON-Dateien statt DB**: Für <100 Profile ausreichend, kein DB-Setup auf dem TV-Backend nötig.
-- **channel_id Regex UC+22**: YouTube Channel-IDs folgen diesem Format, verhindert SSRF bei zukünftigen Channel-Feed-Features.
-- **Kein ffmpeg im Docker**: Alle yt-dlp Calls nutzen skip_download=True, ffmpeg wird nie gebraucht.
+## Entscheidungen
+- **Combined Format statt DASH**: `best[ext=mp4]` statt `bestvideo+bestaudio` — Tizen TV kann keine separaten Streams mergen
+- **Package ID YnOBqFPHf4**: Samsung TVs brauchen 10-char alphanumerische IDs, nicht frei wählbar
+- **Tizen Standard-Zertifikat**: Reicht für Developer Mode, kein Samsung Account nötig
+- **Abo-Feed serverseitig**: Backend holt Videos aller Kanäle via yt-dlp Channel-Feed (kann bei vielen Abos langsam werden)
+- **Trending Fallback-Kette**: YouTube Feed → Playlist → Suche (weil yt-dlp Trending oft kaputt)
 
-## Sackgassen (NICHT wiederholen!)
-- Keine in dieser Session.
+## Infrastruktur
+- LXC 103 "tizentube": 192.168.178.76, Debian 13, Docker, autostart
+- Samsung TV: 192.168.178.45, Developer Mode aktiv, sdb Port 26101 offen
+- Tizen Studio CLI: ~/tizen-studio/ (sdb, tizen CLI)
+- TV Deploy: `tizen install -n tizen/TizenTube.wgt -s 192.168.178.45:26101`
+- TV Starten: `tizen run -p YnOBqFPHf4.TizenTube -s 192.168.178.45:26101`
+- LXC Update: `ssh root@192.168.178.51 "pct exec 103 -- bash -c 'cd /opt/tizentube && git pull && docker compose up -d --build'"`
 
-## Geaenderte Dateien
-- `src/backend/main.py` — Komplett überarbeitet: Validation, Error Handling, StaticFiles-Pfad
-- `src/frontend/app.js` — Suchhistorie, Quality-Selector, 15 Bug-Fixes
-- `src/frontend/index.html` — Search-Dropdown, Quality-Button
-- `src/frontend/style.css` — Search-History-Styles
-- `Dockerfile` — Non-root user, healthcheck, kein ffmpeg
-- `docker-compose.yml` — Healthcheck hinzugefügt
-- `requirements.txt` — Gepinnt, nur Prod-Deps
-- `requirements-dev.txt` — Neu: Test-Deps separiert
-- `.dockerignore` — Neu
-- `tests/e2e/test_mvp.py` — Valide Test-IDs
-- `tests/conftest.py` — monkeypatch statt globale ENV-Mutation
-
-## Aktueller Zustand
-- Tests: 5/5 grün (lokale Tests ohne YouTube-API)
-- Docker: noch nicht deployed (Issue #3)
-- Build: OK, pushed to main
-- GitHub: Issues #1+#2 closed, #3+#4 offen
-
-## Empfohlener erster Schritt
-Frontend `app.js` anpassen: API-Calls müssen weiterhin auf `/` gehen (API-Routen), aber die HTML-Seite wird unter `/app` serviert. Testen ob das im Browser funktioniert, dann Docker-Deploy auf Proxmox.
+## Empfohlener erster Schritt nächste Session
+Issue #7 fixen: Tab-Navigation in der Topbar per D-Pad implementieren (UP/DOWN zwischen Topbar und Content, LEFT/RIGHT zwischen Tabs).
