@@ -236,15 +236,40 @@ def get_video(video_id: str, quality: str = "1080"):
 
 @app.get("/trending")
 def trending():
+    # YouTube Trending-Feed ist bei yt-dlp häufig kaputt.
+    # Fallback: Beliebte Musik-Playlist (DE), dann populäre Suche.
+    sources = [
+        "https://www.youtube.com/feed/trending?gl=DE",
+        "https://www.youtube.com/playlist?list=PLFgquLnL59alW3eaSnz-o1TjFekGmu2VH",
+    ]
     ydl_opts = {
         "quiet": True,
         "extract_flat": True,
         "skip_download": True,
         "playlistend": 20,
     }
+    for source in sources:
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                result = ydl.extract_info(source, download=False)
+                entries = result.get("entries", [])
+                videos = [
+                    {
+                        "id": e.get("id"),
+                        "title": e.get("title"),
+                        "channel": e.get("channel") or e.get("uploader"),
+                        "thumbnail": f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault.jpg",
+                    }
+                    for e in entries if e.get("id")
+                ]
+                if videos:
+                    return videos
+        except yt_dlp.utils.DownloadError:
+            continue
+    # Letzter Fallback: populäre Suche
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            result = ydl.extract_info("https://www.youtube.com/feed/trending?gl=DE", download=False)
+            result = ydl.extract_info("ytsearch20:trending music 2026", download=False)
             entries = result.get("entries", [])
             return [
                 {

@@ -203,21 +203,27 @@ async function loadTab(tab) {
 
   try {
     if (tab === "trending") {
-      const videos = await fetch(`${API}/trending`).then(r => r.json());
+      const res = await fetch(`${API}/trending`);
       if (gen !== tabGeneration) return;
+      if (!res.ok) throw new Error("Trending nicht verfügbar");
+      const videos = await res.json();
       renderVideoGrid(videos, "Trending in Deutschland");
     } else if (tab === "subscriptions") {
-      const subs = await fetch(`${API}/profiles/${currentProfile.id}/subscriptions`).then(r => r.json());
+      const res = await fetch(`${API}/profiles/${currentProfile.id}/subscriptions`);
       if (gen !== tabGeneration) return;
+      if (!res.ok) throw new Error("Abos nicht verfügbar");
+      const subs = await res.json();
       renderSubscriptions(subs);
     } else if (tab === "history") {
-      const history = await fetch(`${API}/profiles/${currentProfile.id}/history`).then(r => r.json());
+      const res = await fetch(`${API}/profiles/${currentProfile.id}/history`);
       if (gen !== tabGeneration) return;
+      if (!res.ok) throw new Error("Verlauf nicht verfügbar");
+      const history = await res.json();
       renderHistory(history);
     }
   } catch (err) {
     if (gen !== tabGeneration) return;
-    area.innerHTML = '<div class="loading" style="color:#666">Laden fehlgeschlagen.</div>';
+    area.innerHTML = `<div class="loading" style="color:#666">${escapeHtml(err.message || "Laden fehlgeschlagen.")}</div>`;
   }
 }
 
