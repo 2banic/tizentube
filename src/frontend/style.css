@@ -405,9 +405,11 @@ body {
   right: 0;
   background: var(--surface);
   border-radius: 0 0 12px 12px;
-  max-height: 300px;
+  max-height: 400px;
   overflow: hidden;
   display: none;
+  z-index: 20;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 
 .search-history.visible {
@@ -415,14 +417,35 @@ body {
 }
 
 .search-history-item {
-  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
   font-size: 20px;
   color: var(--text2);
   border-bottom: 1px solid var(--surface2);
   cursor: pointer;
 }
 
+.search-history-item::before {
+  content: "🕓";
+  font-size: 18px;
+}
+
 .search-history-item.focused {
   background: var(--surface2);
   color: white;
+}
+
+.search-history-clear {
+  padding: 14px 24px;
+  font-size: 18px;
+  color: var(--accent);
+  text-align: center;
+  cursor: pointer;
+  border-top: 1px solid var(--surface2);
+}
+
+.search-history-clear.focused {
+  background: var(--surface2);
 }

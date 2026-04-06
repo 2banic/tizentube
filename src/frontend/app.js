@@ -72,7 +72,10 @@ function selectProfile(profile) {
   loadTab("trending");
 }
 
-// ── SEARCH HISTORY ───────────────────────────────────────
+// ── SEARCH HISTORY ────────────────────────────────────���──
+let searchActive = false;
+let searchHistoryIndex = -1; // -1 = input focused, 0+ = history item
+
 function addToSearchHistory(query) {
   searchHistory = searchHistory.filter(q => q !== query);
   searchHistory.unshift(query);
@@ -80,7 +83,101 @@ function addToSearchHistory(query) {
   localStorage.setItem("searchHistory", JSON.stringify(searchHistory));
 }
 
-// ── HOME / TABS ──────────────────────────────────────────
+function showSearchHistory() {
+  const dropdown = document.getElementById("search-history");
+  dropdown.innerHTML = "";
+  if (searchHistory.length === 0) {
+    dropdown.classList.remove("visible");
+    return;
+  }
+  searchHistory.forEach((q) => {
+    const item = document.createElement("div");
+    item.className = "search-history-item";
+    item.textContent = q;
+    item.addEventListener("click", () => {
+      closeSearchHistory();
+      performSearch(q);
+    });
+    dropdown.appendChild(item);
+  });
+  const clear = document.createElement("div");
+  clear.className = "search-history-clear";
+  clear.textContent = "Verlauf löschen";
+  clear.addEventListener("click", () => {
+    searchHistory = [];
+    localStorage.removeItem("searchHistory");
+    closeSearchHistory();
+  });
+  dropdown.appendChild(clear);
+  dropdown.classList.add("visible");
+  searchHistoryIndex = -1;
+  updateSearchHistoryFocus();
+}
+
+function closeSearchHistory() {
+  document.getElementById("search-history").classList.remove("visible");
+  document.getElementById("search-input").blur();
+  searchActive = false;
+  searchHistoryIndex = -1;
+}
+
+function updateSearchHistoryFocus() {
+  const items = document.querySelectorAll("#search-history .search-history-item, #search-history .search-history-clear");
+  items.forEach((el, i) => el.classList.toggle("focused", i === searchHistoryIndex));
+}
+
+function activateSearch() {
+  searchActive = true;
+  const input = document.getElementById("search-input");
+  input.classList.add("focused");
+  input.focus();
+  showSearchHistory();
+}
+
+function handleSearchKeydown(e) {
+  const KEYS = { UP: 38, DOWN: 40, ENTER: 13, BACK: 10009, ESC: 27 };
+  const allItems = document.querySelectorAll("#search-history .search-history-item, #search-history .search-history-clear");
+  const maxIndex = allItems.length - 1;
+
+  if (e.keyCode === KEYS.DOWN) {
+    e.preventDefault();
+    if (maxIndex >= 0) {
+      searchHistoryIndex = Math.min(searchHistoryIndex + 1, maxIndex);
+      updateSearchHistoryFocus();
+    }
+  } else if (e.keyCode === KEYS.UP) {
+    e.preventDefault();
+    if (searchHistoryIndex > -1) {
+      searchHistoryIndex--;
+      updateSearchHistoryFocus();
+    }
+    if (searchHistoryIndex === -1) {
+      document.getElementById("search-input").focus();
+    }
+  } else if (e.keyCode === KEYS.ENTER) {
+    e.preventDefault();
+    if (searchHistoryIndex >= 0 && searchHistoryIndex <= maxIndex) {
+      const el = allItems[searchHistoryIndex];
+      if (el.classList.contains("search-history-clear")) {
+        el.click();
+      } else {
+        closeSearchHistory();
+        performSearch(el.textContent);
+      }
+    } else {
+      const query = document.getElementById("search-input").value;
+      if (query.trim()) {
+        closeSearchHistory();
+        performSearch(query);
+      }
+    }
+  } else if (e.keyCode === KEYS.BACK || e.keyCode === KEYS.ESC) {
+    e.preventDefault();
+    closeSearchHistory();
+  }
+}
+
+// ── HOME / TABS ────────────���─────────────────────────────
 async function loadTab(tab) {
   currentTab = tab;
   document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
@@ -255,6 +352,15 @@ document.addEventListener("keydown", (e) => {
   if (currentScreen === "profiles") {
     handleNavigation(e, "profiles", "horizontal");
   } else if (currentScreen === "home") {
+    if (searchActive) {
+      handleSearchKeydown(e);
+      return;
+    }
+    // UP auf Video-Grid → Suchfeld aktivieren
+    if (key === KEYS.UP) {
+      activateSearch();
+      return;
+    }
     handleNavigation(e, "home", "horizontal");
     if (key === KEYS.BACK) {
       showScreen("profiles");
