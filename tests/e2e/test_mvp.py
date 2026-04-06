@@ -82,7 +82,7 @@ class TestWatchHistory:
         pid = res.json()["id"]
 
         # Video zum Verlauf hinzufügen
-        res = client.post(f"/profiles/{pid}/history/abc123")
+        res = client.post(f"/profiles/{pid}/history/dQw4w9WgXcQ")
         assert res.status_code == 200
 
         # Verlauf abrufen
@@ -90,19 +90,19 @@ class TestWatchHistory:
         assert res.status_code == 200
         history = res.json()
         assert len(history) == 1
-        assert history[0]["video_id"] == "abc123"
+        assert history[0]["video_id"] == "dQw4w9WgXcQ"
 
     def test_history_deduplication(self, client):
         res = client.post("/profiles", json={"name": "Dedup"})
         pid = res.json()["id"]
 
-        client.post(f"/profiles/{pid}/history/vid1")
-        client.post(f"/profiles/{pid}/history/vid2")
-        client.post(f"/profiles/{pid}/history/vid1")  # nochmal
+        client.post(f"/profiles/{pid}/history/xxxxxxxxxxx")
+        client.post(f"/profiles/{pid}/history/yyyyyyyyyyy")
+        client.post(f"/profiles/{pid}/history/xxxxxxxxxxx")  # nochmal
 
         history = client.get(f"/profiles/{pid}/history").json()
         assert len(history) == 2
-        assert history[0]["video_id"] == "vid1"  # neuester zuerst
+        assert history[0]["video_id"] == "xxxxxxxxxxx"  # neuester zuerst
 
 
 class TestSponsorBlock:

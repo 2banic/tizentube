@@ -39,9 +39,9 @@ async function loadProfiles() {
     card.dataset.id = p.id;
     card.innerHTML = `
       <div class="profile-avatar" style="background:${p.avatar_color}">
-        ${p.name[0].toUpperCase()}
+        ${escapeHtml(p.name[0].toUpperCase())}
       </div>
-      <div class="profile-name">${p.name}</div>
+      <div class="profile-name">${escapeHtml(p.name)}</div>
     `;
     card.addEventListener("click", () => selectProfile(p));
     grid.appendChild(card);
@@ -203,7 +203,7 @@ async function loadTab(tab) {
 function renderVideoGrid(videos, title) {
   const area = document.getElementById("content-area");
   area.innerHTML = `
-    <div class="section-title">${title}</div>
+    <div class="section-title">${escapeHtml(title)}</div>
     <div class="video-grid" id="video-grid"></div>
   `;
   const grid = document.getElementById("video-grid");
@@ -212,10 +212,10 @@ function renderVideoGrid(videos, title) {
     card.className = "video-card" + (i === 0 ? " focused" : "");
     card.dataset.id = v.id;
     card.innerHTML = `
-      <img class="video-thumb" src="${v.thumbnail}" onerror="this.style.display='none'">
+      <img class="video-thumb" src="${escapeHtml(v.thumbnail)}" onerror="this.style.display='none'">
       <div class="video-info">
-        <div class="video-title">${v.title || "–"}</div>
-        <div class="video-channel">${v.channel || ""}</div>
+        <div class="video-title">${escapeHtml(v.title) || "–"}</div>
+        <div class="video-channel">${escapeHtml(v.channel)}</div>
         <div class="video-duration">${formatDuration(v.duration)}</div>
       </div>
     `;
@@ -244,8 +244,8 @@ function renderSubscriptions(subs) {
     const card = document.createElement("div");
     card.className = "channel-card" + (i === 0 ? " focused" : "");
     card.innerHTML = `
-      <div class="channel-icon">${s.channel_name[0] || "?"}</div>
-      <div class="channel-name">${s.channel_name}</div>
+      <div class="channel-icon">${escapeHtml(s.channel_name[0]) || "?"}</div>
+      <div class="channel-name">${escapeHtml(s.channel_name)}</div>
     `;
     list.appendChild(card);
   });
@@ -295,6 +295,7 @@ async function playVideo(id, title) {
   ]);
 
   const video = document.getElementById("player-video");
+  video.removeEventListener("timeupdate", onTimeUpdate);
   video.src = videoInfo.stream_url;
   document.getElementById("player-title").textContent = videoInfo.title;
   sponsorSegments = segments;
@@ -318,7 +319,10 @@ async function changeQuality() {
 
   const videoInfo = await fetch(`${API}/video/${currentVideoId}?quality=${currentQuality}`).then(r => r.json());
   video.src = videoInfo.stream_url;
-  video.currentTime = currentTime;
+  video.addEventListener("loadedmetadata", function seekAfterLoad() {
+    video.currentTime = currentTime;
+    video.removeEventListener("loadedmetadata", seekAfterLoad);
+  });
   video.play();
   resetOverlayTimer();
 }
@@ -440,6 +444,11 @@ function handleNavigation(e, screen, direction) {
 }
 
 // ── HELPER ───────────────────────────────────────────────
+function escapeHtml(str) {
+  if (!str) return "";
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 function formatDuration(secs) {
   if (!secs) return "";
   const m = Math.floor(secs / 60);

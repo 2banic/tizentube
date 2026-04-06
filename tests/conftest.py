@@ -1,6 +1,5 @@
 import pytest
 from fastapi.testclient import TestClient
-import tempfile
 import os
 
 @pytest.fixture
@@ -9,10 +8,9 @@ def data_dir(tmp_path):
     return str(tmp_path / "profiles")
 
 @pytest.fixture
-def client(data_dir):
+def client(data_dir, monkeypatch):
     """Test client with isolated data directory."""
-    os.environ["TIZENTUBE_DATA_DIR"] = data_dir
-    # Re-import to pick up env var
+    monkeypatch.setenv("TIZENTUBE_DATA_DIR", data_dir)
     import importlib
     import src.backend.main as main_module
     importlib.reload(main_module)

@@ -7,6 +7,8 @@ import httpx
 import json
 import uuid
 import os
+import re
+import tempfile
 
 app = FastAPI(title="TizenTube Backend")
 
@@ -33,18 +35,43 @@ class Subscription(BaseModel):
 
 # ─── Helper ────────────────────────────────────────────────
 
+PROFILE_ID_RE = re.compile(r"^[a-f0-9]{8}$")
+VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+def validate_profile_id(profile_id: str):
+    if not PROFILE_ID_RE.match(profile_id):
+        raise HTTPException(400, "Ungültige Profil-ID")
+
+def validate_video_id(video_id: str):
+    if not VIDEO_ID_RE.match(video_id):
+        raise HTTPException(400, "Ungültige Video-ID")
+
 def profile_path(profile_id: str):
-    return f"{DATA_DIR}/{profile_id}"
+    validate_profile_id(profile_id)
+    path = os.path.realpath(f"{DATA_DIR}/{profile_id}")
+    if not path.startswith(os.path.realpath(DATA_DIR)):
+        raise HTTPException(400, "Ungültiger Pfad")
+    return path
 
 def load_json(path: str, default):
     if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return default
     return default
 
 def save_json(path: str, data):
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+    dir_name = os.path.dirname(path)
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        os.unlink(tmp_path)
+        raise
 
 # ─── Profile ───────────────────────────────────────────────
 
@@ -127,6 +154,7 @@ def get_history(profile_id: str):
 
 @app.post("/profiles/{profile_id}/history/{video_id}")
 def add_to_history(profile_id: str, video_id: str, progress: float = 0):
+    validate_video_id(video_id)
     path = f"{profile_path(profile_id)}/history.json"
     history = load_json(path, [])
     history = [h for h in history if h["video_id"] != video_id]
@@ -139,6 +167,8 @@ def add_to_history(profile_id: str, video_id: str, progress: float = 0):
 
 @app.get("/search")
 def search(q: str, limit: int = 20):
+    if not q.strip():
+        return []
     ydl_opts = {
         "quiet": True,
         "extract_flat": True,
@@ -160,6 +190,7 @@ def search(q: str, limit: int = 20):
 
 @app.get("/video/{video_id}")
 def get_video(video_id: str, quality: str = "1080"):
+    validate_video_id(video_id)
     height = int(quality) if quality.isdigit() else 1080
     ydl_opts = {
         "quiet": True,
@@ -168,13 +199,18 @@ def get_video(video_id: str, quality: str = "1080"):
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+        stream_url = info.get("url")
+        if not stream_url:
+            formats = info.get("requested_formats", [])
+            if formats:
+                stream_url = formats[0].get("url")
         return {
             "id": video_id,
             "title": info.get("title"),
             "channel": info.get("channel") or info.get("uploader"),
             "description": info.get("description", "")[:500],
             "duration": info.get("duration"),
-            "stream_url": info.get("url"),
+            "stream_url": stream_url,
             "thumbnail": info.get("thumbnail"),
         }
 
@@ -226,6 +262,7 @@ def get_playlist(playlist_id: str):
 
 @app.get("/sponsorblock/{video_id}")
 async def sponsorblock(video_id: str):
+    validate_video_id(video_id)
     url = f"https://sponsor.ajay.app/api/skipSegments?videoID={video_id}&categories=[\"sponsor\",\"intro\",\"outro\",\"selfpromo\"]"
     async with httpx.AsyncClient() as client:
         try:
